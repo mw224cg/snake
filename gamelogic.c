@@ -1,5 +1,3 @@
-//____________________________________________ GAME LOGIC _____________________________________________________
-
 #include "rand.h"
 // --------------------------- Constants ----------------------------------
 #define TILE_SIZE 10
@@ -45,6 +43,8 @@ int should_grow = 0; // Flagga för att indikera om ormen ska växa
 int collision = 0; // Flagga för kollision
 Direction direction = UP;
 
+//-------------------------------- Functions --------------------------------------------------------
+
 //skapa en orm med riktning upp i mitten av skärmen (12,16) == HEAD, fungerar
 void init_snake(){ 
     int start_row = ROWS/2;
@@ -55,12 +55,19 @@ void init_snake(){
     snake[2] = (SnakeSegment){{start_row + 2, start_col}, TAIL};
 }
 
+
 void clear_matrix(){ //fungerar
     for(int row = 0; row < ROWS; row++){
         for(int col = 0; col < COLUMNS; col++){
             game_matrix[row][col] = EMPTY;
         }
     }
+}
+
+// Returnerar antal ätna äpplen.
+int calculate_score(){
+    int current_score = snake_length - INITIAL_SNAKE_LENGTH;
+    return current_score;
 }
 
 void write_apple_to_matrix(){ //fungerar
@@ -111,6 +118,7 @@ void change_direction(){ //fungerar
     }
 }
 
+
 void grow_snake(){ //fungerar
     should_grow = 1;
 }
@@ -153,7 +161,7 @@ void detect_collision_wall(){
 
 void detect_collision_self(){ //fungerar
     Position head_position = snake[0].pos;
-    for(int i = 0; i < snake_length; i++){
+    for(int i = 1; i < snake_length; i++){
         if(head_position.row == snake[i].pos.row && head_position.column == snake[i].pos.column){
             collision = 1;
         }
@@ -161,8 +169,14 @@ void detect_collision_self(){ //fungerar
     }
 }
 
-//____________________________________________________________________________________________________________
-
+// If head == apple then grow the snake and generate a new apple
+void eat_apple(){
+    Position head_pos = snake[0].pos;
+    if(head_pos.row == apple_position.row && head_pos.column == apple_position.column) {
+        grow_snake();
+        new_apple();
+    }
+}
 
 //__________________________________ VGA Functionality  ____________________________________________________________
 
@@ -184,6 +198,8 @@ volatile unsigned char *back_buffer  = VGA_FB1; // pointer to second frame
 
 
 // ---------------------- functions ---------------------------------------------
+
+//Displays the backbuffer immage
 void swap_buffers() { //fungerar
     while ((*VGA_STATCTRL & 0x1) == 1); //Vänta tills tidigare Swap är klar
 
@@ -302,6 +318,17 @@ void interupt_init(void){
     enable_interrupt();
 }
 
+void disable_timer_interrupt(){
+    *BTN_INTERRUPT_MASK = 0x0;
+    *BTN_INTERRUPT_STATUS = 0x1;
+}
+
+/* Every 0.3s:
+move the snake,
+check if apple and head matches
+detect collisions
+
+*/
 void timer_interrupt(){
     *TIMER_STATUS_ADDR = 0; //Nollställ IRQ
 
@@ -313,12 +340,13 @@ void timer_interrupt(){
             //------spellogik----
             move_snake();
             eat_apple();
-            detect_self_collision();
-            detect_wall_collision();
+            detect_collision_self();
+            detect_collision_wall();
+            display_score();
 
             if(collision == 0){
-                write_snake_to_game_frame();
-                render_frame();
+                write_snake_to_matrix();
+                draw_game_matrix();
                 swap_buffers();
             }
             return;
@@ -335,6 +363,7 @@ void btn_interrupt(){
 
 }
 
+// Enkel dummy-implementation
 void handle_interrupt(unsigned int cause) {
     switch (cause)
     {
@@ -344,6 +373,62 @@ void handle_interrupt(unsigned int cause) {
     }
 }
 
+//___________________________ SCORE: 7-Segment Displays _____________________________________________
+#define DISPLAY_BASE 0x04000050
+#define DISPLAY_OFFSET 0x10
+
+//Lista över värden för 7-segmentsdisplayen. 0 = LED ON
+static const unsigned char display_values[12] = {
+  0b01000000, // 0
+  0b01111001, // 1
+  0b00100100, // 2
+  0b00110000, // 3
+  0b00011001, // 4 
+  0b00010010, // 5 
+  0b00000010, // 6 
+  0b01111000, // 7
+  0b00000000, // 8
+  0b00010000, // 9
+  0b01111111, // '.'
+  0b11111111  // ' '
+
+  };
+
+/* Sätter värdet på 7-segmentsdisplayen.
+Inparameter: Display nummer (0-5) och värdet som ska visas (0-9 eller 10 för punkt).
+Utparameter: void
+*/
+void set_displays(int display_number, int value){
+volatile unsigned char* display_address = (volatile unsigned char*)(DISPLAY_BASE + display_number * DISPLAY_OFFSET); //8bit ptr to the display address
+*display_address = display_values[value];
+}
+
+void display_score(){
+    int score = calculate_score();
+
+    int ones = score % 10;
+    int tens = (score / 10) % 10;
+    int hundreds = (score / 100) % 10;
+
+    set_displays(0, ones);
+    set_displays(1, tens);
+    set_displays(2, hundreds);
+
+    set_displays(3, 11);
+    set_displays(4, 11);
+    set_displays(5, 11);
+}
+
+
+//___________________________________ MENU & SCREENS ________________________________________________________
+
+void display_main_menu(){
+    //kod för att visa en huvudmeny på skärmen, t.ex "SNAKE, PRESS BTN1 to START"
+}
+
+void display_game_over(){
+    //kod för att visa en skärm med texten "GAME OVER"
+}
 
 //______________________________ MAIN & start up ___________________________________________________
 
@@ -352,7 +437,7 @@ void start_game(){
     new_apple();
     write_snake_to_matrix();
 
-    clear_buffer((volatile unsigned char*) back_buffer);
+    clear_buffer(back_buffer);
     draw_game_matrix();
     swap_buffers();
 
@@ -361,10 +446,11 @@ void start_game(){
 
 int main(void){
     start_game();
+
+    if(collision == 1){
+        disable_timer_interrupt();
+        display_game_over();
+    }
+
     while(1);
 }
-
-
-
-
-
