@@ -1,9 +1,10 @@
 #include "rand.h"
+#include "image_start.h"
 // --------------------------- Constants ----------------------------------
 #define TILE_SIZE 10
 #define ROWS 24
 #define COLUMNS 32
-#define SNAKE_MAX_LENGTH 100
+#define SNAKE_MAX_LENGTH 1000
 #define INITIAL_SNAKE_LENGTH 3
 
 
@@ -219,6 +220,13 @@ void clear_buffer(volatile unsigned char *buf) { //fungerar
     }
 }
 
+void image_to_VGA(unsigned char *image){
+     for(int i = 0; i < SCREEN_SIZE; i++) {
+        back_buffer[i] = image[i];
+    }
+    swap_buffers();
+}
+
 //____________________________________ Graphics logic ____________________________________________
 
 //----------------------------- Constants ------------------------------------
@@ -310,6 +318,11 @@ void timer_init(void){
 void btn_init(){
     *BTN_INTERRUPT_MASK = 0x1;      //enable interrupts för BTN1
     *BTN_INTERRUPT_STATUS = 0x1;    //Nollställ IRQ-flagga
+}
+
+//returns value of btn
+int get_btn(){
+    return *BTN_BASE_ADDR & 0x1;
 }
 
 void interupt_init(void){
@@ -422,13 +435,6 @@ void display_score(){
 
 //___________________________________ MENU & SCREENS ________________________________________________________
 
-void display_main_menu(){
-    //kod för att visa en huvudmeny på skärmen, t.ex "SNAKE, PRESS BTN1 to START"
-}
-
-void display_game_over(){
-    //kod för att visa en skärm med texten "GAME OVER"
-}
 
 //______________________________ MAIN & start up ___________________________________________________
 
@@ -445,12 +451,20 @@ void start_game(){
 }
 
 int main(void){
+    image_to_VGA(image_start);
+
+    while(1){
+        if(get_btn()){
+        break;
+        }
+    }
+    
     start_game();
 
     if(collision == 1){
         disable_timer_interrupt();
-        display_game_over();
     }
+    
 
     while(1);
 }
