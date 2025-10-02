@@ -162,4 +162,189 @@ void detect_collision_self(){ //fungerar
 //____________________________________________________________________________________________________________
 
 
+//__________________________________ VGA Functionality  ____________________________________________________________
+
+//----------------------- constants ----------------------------------------------
+#define VGA_BUFFR        ((volatile unsigned int*) 0x04000100)
+#define VGA_BACKBUFFR    ((volatile unsigned int*) 0x04000104)
+#define VGA_STATCTRL     ((volatile unsigned int*) 0x0400010C) //Bit1 = swap status (0 == done)
+
+#define SCREEN_WIDTH   320
+#define SCREEN_HEIGHT   240
+#define SCREEN_SIZE (SCREEN_WIDTH * SCREEN_HEIGHT)
+
+#define VGA_FB0   ((volatile unsigned char*) 0x08000000)
+#define VGA_FB1   ((volatile unsigned char*) (0x08000000 + SCREEN_SIZE))
+
+// --------------------- Global variables ----------------------------------------
+volatile unsigned char *front_buffer = VGA_FB0; //pointer to first frame
+volatile unsigned char *back_buffer  = VGA_FB1; // pointer to second frame
+
+
+// ---------------------- functions ---------------------------------------------
+void swap_buffers() { //fungerar
+    while ((*VGA_STATCTRL & 0x1) == 1); //Vänta tills tidigare Swap är klar
+
+    // Sätt backbuffer-adressen
+    *VGA_BACKBUFFR = (unsigned int)back_buffer;
+    *VGA_BUFFR = 0; // trigga swap
+
+    // Byt pekare
+    volatile unsigned char *tmp = front_buffer;
+    front_buffer = back_buffer;
+    back_buffer = tmp;
+}
+
+void clear_buffer(volatile unsigned char *buf) { //fungerar
+    for (int i = 0; i < SCREEN_SIZE; i++) {
+        buf[i] = 0;
+    }
+}
+
+//____________________________________ Graphics logic ____________________________________________
+
+//----------------------------- Constants ------------------------------------
+
+#define RED 0xE0
+#define GREEN 0x1C
+#define BLUE 0x03
+#define BLACK 0x00
+#define WHITE 0xFF
+#define CYAN 0x1F
+
+//--------------------------- Functions ---------------------------------------
+
+// Plots a px at coordinate (x,y) of specified color to the back buffer
+// int x: (0 - 319)
+// int y: (0 - 239)
+void plot_pixel(int x, int y, unsigned char color){ //fungerar
+    if (x < 0 || x >= SCREEN_WIDTH || y < 0 || y >= SCREEN_HEIGHT) return;
+    int offset = y * SCREEN_WIDTH + x;
+    back_buffer[offset] = color;
+}
+
+// Draws a 10*10 square at the specified row/column to the backbuffer
+void draw_tile(int row, int column, unsigned char color){ //fungerar
+    int start_x = column * TILE_SIZE;
+    int start_y = row * TILE_SIZE;
+
+    for (int y = 0; y < TILE_SIZE; y++) {
+        for (int x = 0; x < TILE_SIZE; x++) {
+            plot_pixel(start_x + x, start_y + y, color);
+        }
+    }
+}
+
+// Draws the whole matrix to the backbuffer
+void draw_game_matrix(){
+    for(int row = 0; row < ROWS; row++){
+        for(int col = 0; col < COLUMNS; col++){
+            unsigned char color = CYAN;
+            switch (game_matrix[row][col]){
+            case EMPTY: color = CYAN; break;
+            case HEAD: color = RED; break;
+            case BODY: color = BLACK; break;
+            case TAIL: color = GREEN; break;
+            case APPLE: color = WHITE; break;
+            }
+
+            draw_tile(row, col, color);
+        }
+    }
+}
+
+//___________________________________ INTERRUPTS_________________________________________________________
+
+extern void enable_interrupt(void);
+
+//------------------------- CONTSTANTS ---------------------------------------------------
+
+// Timer addresses, each register is 16 bits, pointers to 2byte (short).
+#define TIMER_STATUS_ADDR ((volatile unsigned short*) 0x04000020) //Timer status address Bit 0: TO, Bit 1: RUN
+#define TIMER_CONTROL_ADDR ((volatile unsigned short*) 0x04000024) /*Control: Bit 0: ITO, Bit 1: CONT, Bit 2: START, Bit 3: STOP*/
+#define TIMER_PERIOD_LOW_ADDR ((volatile unsigned short*) 0x04000028) //Timer period low address [0-15]
+#define TIMER_PERIOD_HIGH_ADDR ((volatile unsigned short*) 0x0400002C) //Timer period high address [16-31]
+
+// BTN addresses, each register is 32 bits, pointers to 4byte (int)
+#define BTN_BASE_ADDR ((volatile int*) 0x040000D0)
+#define BTN_INTERRUPT_MASK ((volatile int*) 0x040000D8) //+2 word offset
+#define BTN_INTERRUPT_STATUS ((volatile int*)0x040000DC) //+3 word offset
+
+//Constants
+#define PERIOD ((unsigned int) 3000000 - 1) // Timer period i klockcykler (3 miljoner cykler = 0.1s vid 30MHz klocka)
+#define TIMER_INTERRUPT 16
+#define BUTTON_INTERRUPT 18
+
+int timeoutcount = 0;
+
+
+void timer_init(void){
+    *TIMER_PERIOD_LOW_ADDR = PERIOD & 0xFFFF; //Bit 0-15 av perioden
+    *TIMER_PERIOD_HIGH_ADDR = (PERIOD >> 16) & 0xFFFF; //Bit 16-31 av perioden
+    
+    *TIMER_CONTROL_ADDR = 0b0111;
+    // Bit 0: ITO=1 (interrupt enable)
+    // Bit 1: CONT=1 (continuous mode)
+    // Bit 2: START=1 (start timer)
+    // Bit 3: STOP=0 
+}
+
+void btn_init(){
+    *BTN_INTERRUPT_MASK = 0x1;      //enable interrupts för BTN1
+    *BTN_INTERRUPT_STATUS = 0x1;    //Nollställ IRQ-flagga
+}
+
+void interupt_init(void){
+    timer_init();
+    btn_init();
+    enable_interrupt();
+}
+
+void timer_interrupt(){
+    *TIMER_STATUS_ADDR = 0; //Nollställ IRQ
+
+    timeoutcount++;
+
+        if (timeoutcount >= 5) { //0,5s update
+            timeoutcount = 0;             // Reset counter
+            
+            //------spellogik----
+            move_snake();
+            eat_apple();
+            detect_self_collision();
+            detect_wall_collision();
+
+            if(collision == 0){
+                write_snake_to_game_frame();
+                render_frame();
+                swap_buffers();
+            }
+            return;
+        }
+}
+
+void btn_interrupt(){
+    int button = *BTN_BASE_ADDR & 0x1;
+    *BTN_INTERRUPT_STATUS = 0; //Nollställ IRQ
+
+    if(button == 0){
+        change_direction();
+    }
+
+}
+
+// Enkel dummy-implementation
+void handle_interrupt(unsigned int cause) {
+    switch (cause)
+    {
+    case 16: timer_interrupt(); break;
+    case 18: btn_interrupt(); break;
+    default: break;
+    }
+}
+
+
+
+
+
 
