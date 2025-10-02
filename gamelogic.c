@@ -335,7 +335,6 @@ void btn_interrupt(){
 
 }
 
-// Enkel dummy-implementation
 void handle_interrupt(unsigned int cause) {
     switch (cause)
     {
@@ -345,6 +344,25 @@ void handle_interrupt(unsigned int cause) {
     }
 }
 
+
+//______________________________ MAIN & start up ___________________________________________________
+
+void start_game(){
+    init_snake();
+    new_apple();
+    write_snake_to_matrix();
+
+    clear_buffer((volatile unsigned char*) back_buffer);
+    draw_game_matrix();
+    swap_buffers();
+
+    interupt_init();
+}
+
+int main(void){
+    start_game();
+    while(1);
+}
 
 
 
