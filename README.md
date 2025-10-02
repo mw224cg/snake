@@ -14,7 +14,7 @@ The snake is represented by an array, where each position in the array contains 
 Movement is based on the current direction of the snake, setting the position of the head 1 step forward and moving the rest of the
 segments to the spot before it (eg. snake[2].pos = [snake[1].pos).
 
-##Comment
+## Comment
 When first developing the program, weird bugs where met when the different functionalities where divided into different files.
 Now almost all code is in the same file: game_logic.c, which is very messy but will do for now.
 The code is very dependent on global variables, and some of the functions could be made more general which would make it easier to further develop the game.
