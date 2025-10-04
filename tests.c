@@ -1,3 +1,6 @@
+// Test code used during development of the project
+
+
 //__________________________DEBUG___________________________________
 void read_game_frame(){
     for(int row = 0; row < 24; row++){
