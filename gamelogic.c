@@ -412,8 +412,10 @@ void interupt_init(void){
 }
 
 void disable_timer_interrupt(){
-    *TIMER_CONTROL_ADDR &= ~0x4;   // Bit 2 = START, sätt till 0
-    *TIMER_CONTROL_ADDR &= ~0x1;   // Bit 0 = ITO, stäng av interrupt
+    *TIMER_CONTROL_ADDR = 0b010;
+    *TIMER_STATUS_ADDR = 0x1;      // Rensa endast timerflagga
+    print("Timer interrupt disabled\n");
+}
     *TIMER_STATUS_ADDR = 0x1;      // Rensa endast timerflagga
     print("Timer interrupt disabled\n");
 }
