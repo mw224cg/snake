@@ -14,6 +14,16 @@ The snake is represented by an array, where each position in the array contains 
 Movement is based on the current direction of the snake, setting the position of the head 1 step forward and moving the rest of the
 segments to the spot before it (eg. snake[2].pos = [snake[1].pos).
 
+## Pictures
+The start up / game-over screens where created by:
+* Creating a 320*240 sized work area in GIMP
+* Importing the chosen picture and scaling it to fit the work area
+* Changing the mode to "indexed colors"
+* --> Choosing the amount of colors to 8 bit == 256
+* -->>Apply dithering to avoid color-bleed
+* Export as .raw and converting the .raw-file to an array: unsigned char[] = { "8bit color value for (0,0)", "8bit color value for (1,0)", .... "8bit color value for (319,239)" }
+* Each value (x,y) is then written to the VGA backbuffer ( (0,0) written to back_buffer[0] ... (319,239) written to back_buffer[76800])
+
 ## Comment
 When first developing the program, weird bugs where met when the different functionalities where divided into different files.
 Now almost all code is in the same file: game_logic.c, which is very messy but will do for now.
