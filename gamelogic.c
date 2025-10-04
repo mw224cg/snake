@@ -1,5 +1,16 @@
 #include "rand.h"
 #include "image_start.h"
+#include "image_game_over.h"
+
+extern void print(const char*);
+extern void print_dec(unsigned int);
+extern void display_string(char*);
+extern void time2string(char*,int);
+extern void tick(int*);
+extern void delay(int);
+extern int nextprime( int );
+extern void enable_interrupt(void);
+
 // --------------------------- Constants ----------------------------------
 #define TILE_SIZE 10
 #define ROWS 24
@@ -39,7 +50,7 @@ Types game_matrix[24][32];  //representerar spelaplanen som ett rutnät av 10*10
 
 Position apple_position;
 SnakeSegment snake[SNAKE_MAX_LENGTH];
-int snake_length = INITIAL_SNAKE_LENGTH; // Initial längd på ormen
+int snake_length;
 int should_grow = 0; // Flagga för att indikera om ormen ska växa
 int collision = 0; // Flagga för kollision
 Direction direction = UP;
@@ -48,6 +59,8 @@ Direction direction = UP;
 
 //skapa en orm med riktning upp i mitten av skärmen (12,16) == HEAD, fungerar
 void init_snake(){ 
+
+    snake_length = INITIAL_SNAKE_LENGTH;
     int start_row = ROWS/2;
     int start_col = COLUMNS/2;
 
@@ -105,7 +118,7 @@ void new_apple(){ //fungerar, new_apple måste skrivas efter init_snake
     }
     if(empty_count == 0) return; // Om inga tomma positioner finns, gör inget
 
-    int index = rand() % empty_count; // Välj en slumpmässig tom position
+    int index = random() % empty_count; // Välj en slumpmässig tom position
     apple_position = empty_positions[index]; // Sätt äpplets position
 }
 
@@ -155,7 +168,7 @@ void move_snake(){ //fungerar
 
 void detect_collision_wall(){
     Position head_position = snake[0].pos;
-    if(head_position.row < 0 || head_position.row > ROWS || head_position.column < 0 || head_position.column > COLUMNS){
+    if(head_position.row < 0 || head_position.row >= ROWS || head_position.column < 0 || head_position.column >= COLUMNS){
         collision = 1;
     }
 }
@@ -224,6 +237,7 @@ void image_to_VGA(unsigned char *image){
      for(int i = 0; i < SCREEN_SIZE; i++) {
         back_buffer[i] = image[i];
     }
+    print("Image start/game_over\n");
     swap_buffers();
 }
 
@@ -278,114 +292,6 @@ void draw_game_matrix(){
         }
     }
 }
-
-//___________________________________ INTERRUPTS_________________________________________________________
-
-extern void enable_interrupt(void);
-
-//------------------------- CONTSTANTS ---------------------------------------------------
-
-// Timer addresses, each register is 16 bits, pointers to 2byte (short).
-#define TIMER_STATUS_ADDR ((volatile unsigned short*) 0x04000020) //Timer status address Bit 0: TO, Bit 1: RUN
-#define TIMER_CONTROL_ADDR ((volatile unsigned short*) 0x04000024) /*Control: Bit 0: ITO, Bit 1: CONT, Bit 2: START, Bit 3: STOP*/
-#define TIMER_PERIOD_LOW_ADDR ((volatile unsigned short*) 0x04000028) //Timer period low address [0-15]
-#define TIMER_PERIOD_HIGH_ADDR ((volatile unsigned short*) 0x0400002C) //Timer period high address [16-31]
-
-// BTN addresses, each register is 32 bits, pointers to 4byte (int)
-#define BTN_BASE_ADDR ((volatile int*) 0x040000D0)
-#define BTN_INTERRUPT_MASK ((volatile int*) 0x040000D8) //+2 word offset
-#define BTN_INTERRUPT_STATUS ((volatile int*)0x040000DC) //+3 word offset
-
-//Constants
-#define PERIOD ((unsigned int) 3000000 - 1) // Timer period i klockcykler (3 miljoner cykler = 0.1s vid 30MHz klocka)
-#define TIMER_INTERRUPT 16
-#define BUTTON_INTERRUPT 18
-
-int timeoutcount = 0;
-
-
-void timer_init(void){
-    *TIMER_PERIOD_LOW_ADDR = PERIOD & 0xFFFF; //Bit 0-15 av perioden
-    *TIMER_PERIOD_HIGH_ADDR = (PERIOD >> 16) & 0xFFFF; //Bit 16-31 av perioden
-    
-    *TIMER_CONTROL_ADDR = 0b0111;
-    // Bit 0: ITO=1 (interrupt enable)
-    // Bit 1: CONT=1 (continuous mode)
-    // Bit 2: START=1 (start timer)
-    // Bit 3: STOP=0 
-}
-
-void btn_init(){
-    *BTN_INTERRUPT_MASK = 0x1;      //enable interrupts för BTN1
-    *BTN_INTERRUPT_STATUS = 0x1;    //Nollställ IRQ-flagga
-}
-
-//returns value of btn
-int get_btn(){
-    return *BTN_BASE_ADDR & 0x1;
-}
-
-void interupt_init(void){
-    timer_init();
-    btn_init();
-    enable_interrupt();
-}
-
-void disable_timer_interrupt(){
-    *BTN_INTERRUPT_MASK = 0x0;
-    *BTN_INTERRUPT_STATUS = 0x1;
-}
-
-/* Every 0.3s:
-move the snake,
-check if apple and head matches
-detect collisions
-
-*/
-void timer_interrupt(){
-    *TIMER_STATUS_ADDR = 0; //Nollställ IRQ
-
-    timeoutcount++;
-
-        if (timeoutcount >= 5) { //0,5s update
-            timeoutcount = 0;             // Reset counter
-            
-            //------spellogik----
-            move_snake();
-            eat_apple();
-            detect_collision_self();
-            detect_collision_wall();
-            display_score();
-
-            if(collision == 0){
-                write_snake_to_matrix();
-                draw_game_matrix();
-                swap_buffers();
-            }
-            return;
-        }
-}
-
-void btn_interrupt(){
-    int button = *BTN_BASE_ADDR & 0x1;
-    *BTN_INTERRUPT_STATUS = 0; //Nollställ IRQ
-
-    if(button == 0){
-        change_direction();
-    }
-
-}
-
-// Enkel dummy-implementation
-void handle_interrupt(unsigned int cause) {
-    switch (cause)
-    {
-    case 16: timer_interrupt(); break;
-    case 18: btn_interrupt(); break;
-    default: break;
-    }
-}
-
 //___________________________ SCORE: 7-Segment Displays _____________________________________________
 #define DISPLAY_BASE 0x04000050
 #define DISPLAY_OFFSET 0x10
@@ -432,13 +338,147 @@ void display_score(){
     set_displays(5, 11);
 }
 
+void reset_score(){
+    print("Reset displays\n");
+    set_displays(0, 0);
+    set_displays(1, 0);
+    set_displays(2, 0);
+
+    set_displays(3, 11);
+    set_displays(4, 11);
+    set_displays(5, 11);
+}
+
+
+//___________________________________ INTERRUPTS_________________________________________________________
+
+extern void enable_interrupt(void);
+
+//------------------------- CONTSTANTS ---------------------------------------------------
+
+// Timer addresses, each register is 16 bits, pointers to 2byte (short).
+#define TIMER_STATUS_ADDR ((volatile unsigned short*) 0x04000020) //Timer status address Bit 0: TO, Bit 1: RUN
+#define TIMER_CONTROL_ADDR ((volatile unsigned short*) 0x04000024) /*Control: Bit 0: ITO, Bit 1: CONT, Bit 2: START, Bit 3: STOP*/
+#define TIMER_PERIOD_LOW_ADDR ((volatile unsigned short*) 0x04000028) //Timer period low address [0-15]
+#define TIMER_PERIOD_HIGH_ADDR ((volatile unsigned short*) 0x0400002C) //Timer period high address [16-31]
+
+// BTN addresses, each register is 32 bits, pointers to 4byte (int)
+#define BTN_BASE_ADDR ((volatile int*) 0x040000D0)
+#define BTN_INTERRUPT_MASK ((volatile int*) 0x040000D8) //+2 word offset
+#define BTN_INTERRUPT_STATUS ((volatile int*)0x040000DC) //+3 word offset
+
+//Constants
+#define PERIOD ((unsigned int) 3000000 - 1) // Timer period i klockcykler (3 miljoner cykler = 0.1s vid 30MHz klocka)
+#define TIMER_INTERRUPT 16
+#define BUTTON_INTERRUPT 18
+
+//------------------------ Globala variabler ------------------------------------------------
+
+volatile int timeoutcount = 0;
+volatile int tick_flag = 0;
+
+
+void timer_init(void){
+    *TIMER_PERIOD_LOW_ADDR = PERIOD & 0xFFFF; //Bit 0-15 av perioden
+    *TIMER_PERIOD_HIGH_ADDR = (PERIOD >> 16) & 0xFFFF; //Bit 16-31 av perioden
+    
+    *TIMER_CONTROL_ADDR = 0b0111;
+    // Bit 0: ITO=1 (interrupt enable)
+    // Bit 1: CONT=1 (continuous mode)
+    // Bit 2: START=1 (start timer)
+    // Bit 3: STOP=0 
+}
+
+void btn_init(){
+    *BTN_INTERRUPT_MASK = 0x1;      //enable interrupts för BTN1
+    *BTN_INTERRUPT_STATUS = 0x1;    //Nollställ IRQ-flagga
+}
+
+//returns value of btn
+int get_btn(){
+    if(*BTN_BASE_ADDR & 0x1 == 1){
+        print("BTN press\n");
+        return *BTN_BASE_ADDR & 0x1;
+    } else{
+        return 0;
+    }
+    
+}
+
+void interupt_init(void){
+    timer_init();
+    btn_init();
+    enable_interrupt();
+}
+
+void disable_timer_interrupt(){
+    *TIMER_CONTROL_ADDR &= ~0x4;   // Bit 2 = START, sätt till 0
+    *TIMER_CONTROL_ADDR &= ~0x1;   // Bit 0 = ITO, stäng av interrupt
+    *TIMER_STATUS_ADDR = 0x1;      // Rensa endast timerflagga
+    print("Timer interrupt disabled\n");
+}
+
+void disable_btn_interrupt(){
+    *BTN_INTERRUPT_MASK = 0x0;
+    *BTN_INTERRUPT_STATUS = 0x1;
+    print("Disabled btn int\n");
+}
+
+void disable_interrupts(){
+    disable_btn_interrupt();
+    disable_timer_interrupt();
+}
+/* Every 0.3s:
+move the snake,
+check if apple and head matches
+detect collisions
+
+*/
+void timer_interrupt(){
+    *TIMER_STATUS_ADDR = 0; //Nollställ IRQ
+
+    timeoutcount++;
+
+        if (timeoutcount >= 3) { //0,3s update
+            timeoutcount = 0;             // Reset counter
+            
+            tick_flag = 1;
+        }
+}
+
+void btn_interrupt(){
+    int button = *BTN_BASE_ADDR & 0x1;
+    *BTN_INTERRUPT_STATUS = 0; //Nollställ IRQ
+
+    if(button == 0){
+        change_direction();
+        print("BTN int\n");
+    }
+
+}
+
+// Enkel dummy-implementation
+void handle_interrupt(unsigned int cause) {
+    switch (cause)
+    {
+    case 16: timer_interrupt(); break;
+    case 18: btn_interrupt(); break;
+    default: break;
+    }
+}
 
 //___________________________________ MENU & SCREENS ________________________________________________________
 
 
 //______________________________ MAIN & start up ___________________________________________________
 
+// Nollställ gv, initiera orm + äpple, skriv objekt till positioner på spelplanen, rita spelplanen och visa på VGA
+// tillåt interrupts
 void start_game(){
+    collision = 0;
+    direction = UP;
+    tick_flag = 0;
+    reset_score();
     init_snake();
     new_apple();
     write_snake_to_matrix();
@@ -450,21 +490,42 @@ void start_game(){
     interupt_init();
 }
 
+
+
 int main(void){
-    image_to_VGA(image_start);
-
     while(1){
-        if(get_btn()){
-        break;
+        image_to_VGA(image_start);
+
+        while (get_btn() == 0);
+
+        start_game();
+
+        while (collision == 0){
+            if(tick_flag){
+                tick_flag = 0;
+
+                move_snake();
+                detect_collision_self();
+                detect_collision_wall();
+
+                if(collision) break;
+
+                eat_apple();
+                display_score();
+                write_snake_to_matrix();
+                draw_game_matrix();
+                swap_buffers();
+            }
         }
-    }
-    
-    start_game();
 
-    if(collision == 1){
-        disable_timer_interrupt();
-    }
-    
+        image_to_VGA(image_game_over);
+        disable_interrupts();
 
-    while(1);
+        print("GAME OVER\n");
+        print("Final score: ");
+        print_dec(((unsigned int)calculate_score()));
+        print("\nTo play again: press BTN1");
+
+        while (get_btn()==0);
+    }
 }
